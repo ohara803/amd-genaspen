@@ -110,3 +110,16 @@ SSH認証が復旧するまで、改良版のコンパイルおよび実行結�
 ### 確認できなかった項目
 
 制限付きSSHでは成果物の内容を直接表示できなかったため、カーネル時間、GFLOP/s、平均電力、温度の具体値は未確認。温度取得はプログラム上 `nan` を許容するため、温度測定の成功は判定していない。
+
+## 2026-11-21 ジョブ番号付きログ版の投入試行
+
+- 実施日時: 2026-11-21 00:27:55 JST (+0900)
+- GitHub `main`: `fa46fd3db6e2ba875a0365aedc30e3f07261c075`
+- 予定ログ名: `summary/run_<ジョブ番号>.log`
+- `qsub` 呼び出し: 失敗
+- SSHエラー: `mux_client_request_session: read from master failed: Broken pipe`、続いて `Permission denied (keyboard-interactive)`
+- ジョブID: 発行なし
+- 新規ジョブ投入数: 0
+- SSH認証失敗後の再試行: なし
+
+ジョブが作成されなかったため、コンパイル、実行、実行時間、GFLOP/s、電力、温度はいずれも未実施・未確認。
