@@ -7,8 +7,19 @@ REPO_URL="https://github.com/ohara803/amd-genaspen.git"
 
 # pbswrap が提供する書き込み可能な作業領域
 cd "$PBSWRAP_WORK"
-mkdir -p "$PBSWRAP_WORK/summary"
-exec > >(tee "$PBSWRAP_WORK/000-run.log") 2>&1
+summary_dir="$PBSWRAP_WORK/summary"
+job_number="${PBS_JOBID%%.*}"
+if [[ ! "$job_number" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: invalid PBS_JOBID: $PBS_JOBID" >&2
+    exit 1
+fi
+mkdir -p "$summary_dir"
+run_log="$summary_dir/run_${job_number}.log"
+exec > >(tee "$run_log") 2>&1
+
+echo "=== PBS job ==="
+echo "PBS_JOBID=$PBS_JOBID"
+echo "run_log=$run_log"
 
 # GitHub から最新コードを取得
 git clone --depth 1 --branch main --single-branch "$REPO_URL" repo
@@ -52,7 +63,7 @@ awk -F, '
 echo "=== Completed ==="
 
 # ジョブ終了後に回収する成果物
-cp power.csv "$PBSWRAP_WORK/summary/"
-git rev-parse HEAD > "$PBSWRAP_WORK/summary/commit.txt"
+cp power.csv "$summary_dir/"
+git rev-parse HEAD > "$summary_dir/commit.txt"
 
 echo "AGENT_TEST_SUCCESS"
