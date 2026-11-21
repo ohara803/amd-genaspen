@@ -162,3 +162,101 @@ SSH認証が復旧するまで、改良版のコンパイルおよび実行結�
 ### 成否判定
 
 実行ログに `=== Completed ===` と `AGENT_TEST_SUCCESS` があり、ジョブ内でコンパイル、AXPY実行、1件以上のCSV行、有効な電力値の検証をすべて通過した。回収した `power.csv` には9件の有効な電力値と温度値があり、`commit.txt` は投入対象のcommitと一致した。したがって、`axpy.hip` のHIPコンパイル、MI300A上の実行、性能結果の出力、AMD SMIによる電力・温度測定、および結果回収は成功と判定した。
+
+## 2026-11-21 GitHub経由でSiriusの固定ディレクトリへ配置
+
+### 目的
+
+ローカルで作成した以下のディレクトリをGitHub経由でSiriusの固定ディレクトリへ配置する。
+
+- `hip_kernels`: 単独実行可能なHIPプログラム16本
+- `hip_kernels_only`: カーネル関数のみのHIPファイル16本
+- 配置先: `/work/CSPP/ohara_803/20261120_amd_genaspen`
+
+### 接続方法の使い分け
+
+`sirius-agent` は通常のログインシェルではなく、PBS操作用の制限付き接続である。確認時点では `qsub`、`qstat`、ジョブ成果物用の `ls` と `tail` は使用できるが、通常の `git` やファイル操作コマンドは拒否された。
+
+PBSジョブ内ではGitHubから `$PBSWRAP_WORK` へcloneできる。ただし、固定ディレクトリ `/work/CSPP/ohara_803/20261120_amd_genaspen` はジョブ内に読み取り専用で公開されるため、`$PBSWRAP_WORK` から固定ディレクトリへ `cp` や `mv` を行うことはできない。
+
+用途ごとの接続方法は次のとおり。
+
+- コンパイル・GPU実行: `sirius-agent` でPBSジョブを投入し、ジョブ内で `$PBSWRAP_WORK` へGitHubをcloneする。
+- 固定ディレクトリへの配置: 通常SSH接続を使用し、ログインシェルからGitHubをcloneする。
+
+### 通常SSH接続の確立
+
+MacBook側で次のコマンドを実行し、Verification codeを入力する。
+
+```bash
+ssh -M -S /tmp/codex-sirius-login.sock -fN \
+  ohara_803@sirius.ccs.tsukuba.ac.jp
+```
+
+オプションの意味:
+
+- `-M`: 後続のSSH接続で共有できるマスター接続にする。
+- `-S`: 共有接続のソケットパスを指定する。
+- `-f`: 認証後に接続をバックグラウンドへ移す。
+- `-N`: リモートコマンドを実行せず、接続だけを維持する。
+
+このコマンド自体はファイルを配置しない。認証済み接続を作成し、後続の `ssh -S /tmp/codex-sirius-login.sock ...` で再利用するためのものである。
+
+### 配置手順
+
+1. ローカルで対象ディレクトリだけをcommitし、`origin/main` へpushする。
+2. `git ls-remote origin refs/heads/main` でGitHub側のSHAを確認する。
+3. 通常SSH接続で配置先の既存内容と同名ディレクトリの有無を確認する。
+4. 配置先直下の一時ディレクトリへGitHubをcloneする。
+5. cloneしたHEADが期待するSHAと一致し、両ディレクトリにHIPファイルが16本ずつあることを確認する。
+6. 同名ディレクトリが存在しないことを確認してから、2ディレクトリだけを配置先へ移動する。
+7. 一時cloneディレクトリを削除し、配置先のファイル一覧と件数を再確認する。
+
+今回使用したGitHubコミット:
+
+```text
+501eec2b109e95ca36c3626462d1cb0eaf7ea271
+```
+
+通常SSH経由の処理例。`EXPECTED_SHA` は配置するコミットに置き換える。
+
+```bash
+ssh -S /tmp/codex-sirius-login.sock \
+  ohara_803@sirius.ccs.tsukuba.ac.jp '
+    set -euo pipefail
+    target=/work/CSPP/ohara_803/20261120_amd_genaspen
+    staging="$target/.github-sync"
+    EXPECTED_SHA=501eec2b109e95ca36c3626462d1cb0eaf7ea271
+
+    test ! -e "$staging"
+    test ! -e "$target/hip_kernels"
+    test ! -e "$target/hip_kernels_only"
+
+    git clone --quiet --depth 1 --branch main \
+      https://github.com/ohara803/amd-genaspen.git "$staging"
+
+    test "$(git -C "$staging" rev-parse HEAD)" = "$EXPECTED_SHA"
+    test "$(find "$staging/hip_kernels" -maxdepth 1 -type f -name "*.hip" | wc -l)" -eq 16
+    test "$(find "$staging/hip_kernels_only" -maxdepth 1 -type f -name "*.hip" | wc -l)" -eq 16
+
+    mv "$staging/hip_kernels" "$target/"
+    mv "$staging/hip_kernels_only" "$target/"
+    rm -rf -- "$staging"
+  '
+```
+
+同名ディレクトリがすでに存在する場合、この例は `test ! -e` で停止する。既存データを暗黙に上書きまたは削除せず、内容を確認してから更新方法を決める。
+
+### 今回の結果
+
+- GitHub `origin/main` へのpush: 成功
+- 通常SSH接続: 成功
+- 配置元コミットのSHA確認: 成功
+- `hip_kernels`: 16ファイル配置済み
+- `hip_kernels_only`: 16ファイル配置済み
+- 既存の `runs` ディレクトリ: 変更なし
+- 一時cloneディレクトリ: 削除済み
+
+### 失敗した試行
+
+ジョブ `50772.pbs` では、PBSジョブから固定ディレクトリへ書き込もうとした。`pbswrap` により固定ディレクトリが読み取り専用で公開されるため、この方式では配置できなかった。この失敗から、固定ディレクトリの更新には通常SSH接続が必要であることを確認した。
