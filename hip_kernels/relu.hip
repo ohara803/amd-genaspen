@@ -10,6 +10,7 @@
 #include <climits>
 #include <cmath>
 #include <cstdint>
+#include <ctime>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -231,6 +232,26 @@ static inline size_t total_device_bytes(const std::vector<size_t>& counts) {
     return total;
 }
 
+static inline std::string make_power_filename(const char* kernel_name,
+                                              size_t n, int iterations) {
+    const std::time_t now = std::chrono::system_clock::to_time_t(
+        std::chrono::system_clock::now());
+    std::tm local_time{};
+    if (localtime_r(&now, &local_time) == nullptr) {
+        std::fprintf(stderr, "Cannot convert execution time\n");
+        std::exit(EXIT_FAILURE);
+    }
+    char timestamp[32] = {};
+    if (std::strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S",
+                      &local_time) == 0) {
+        std::fprintf(stderr, "Cannot format execution time\n");
+        std::exit(EXIT_FAILURE);
+    }
+    return std::string("power_") + kernel_name + "_" + timestamp +
+           "_N" + std::to_string(n) + "_iter" +
+           std::to_string(iterations) + ".csv";
+}
+
 template <class Workload>
 int run_hip_benchmark(int argc, char** argv) {
     if (argc > 3) {
@@ -333,9 +354,11 @@ int run_hip_benchmark(int argc, char** argv) {
     stop_sampling.store(true, std::memory_order_release);
     sampler.join();
 
-    std::ofstream out("power.csv");
+    const std::string power_csv = make_power_filename(
+        Workload::name, n, iterations);
+    std::ofstream out(power_csv);
     if (!out) {
-        std::fprintf(stderr, "Cannot open power.csv for writing\n");
+        std::fprintf(stderr, "Cannot open %s for writing\n", power_csv.c_str());
         return EXIT_FAILURE;
     }
     out << "time_ms,power_W,gpu_temp_C\n" << std::fixed << std::setprecision(3);
@@ -349,7 +372,7 @@ int run_hip_benchmark(int argc, char** argv) {
     }
     out.close();
     if (!out) {
-        std::fprintf(stderr, "Failed to write power.csv\n");
+        std::fprintf(stderr, "Failed to write %s\n", power_csv.c_str());
         return EXIT_FAILURE;
     }
 
@@ -362,8 +385,8 @@ int run_hip_benchmark(int argc, char** argv) {
     std::printf("kernel,problem size,iterations,total kernel time [s],avg kernel time [ms],GFLOP/s,TFLOP/s\n");
     std::printf("%s,%zu,%d,%.6f,%.6f,%.6f,%.6f\n", Workload::name, n,
                 iterations, elapsed_sec, avg_ms, gflops, gflops / 1000.0);
-    std::fprintf(stderr, "Saved %zu power/temperature samples to power.csv\n",
-                 sample_count);
+    std::fprintf(stderr, "Saved %zu power/temperature samples to %s\n",
+                 sample_count, power_csv.c_str());
     if (sample_count < 2)
         std::fprintf(stderr, "Warning: measurement too short for reliable 50 ms polling; increase iterations.\n");
 
