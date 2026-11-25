@@ -15,8 +15,10 @@ prompt/completion token counts and per-stage elapsed seconds.
 Because PBSWRAP deliberately hides sibling `/work` and `/home` paths, run
 `type0/prepare_pbswrap_stage.sh` once on the Sirius login node before
 submission.  It creates a new directory under the mounted project and uses
-hard links for GenASPEN, the Python environment, Ollama, and model blobs; it
-does not alter their canonical files or duplicate their data blocks.
+hard links for GenASPEN, its site-packages, Ollama, and model blobs.  Only the
+112 MB standalone Python distribution and 38 MB `uv` binary cross the
+`/home`/`/work` mount boundary as ordinary copies.  Canonical files are never
+altered.
 
 Submit from the MacBook with a 30-minute limit:
 

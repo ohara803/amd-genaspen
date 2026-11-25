@@ -33,8 +33,10 @@ done
 
 cp -al "$BASE/ollama-v0321" "$STAGE/"
 cp -al "$BASE/ollama/models" "$STAGE/ollama-models"
-cp -al "$PYTHON_SOURCE" "$STAGE/python"
-cp -al "$UV_SOURCE" "$STAGE/bin/uv"
+# /home and /work are separate mounts on Sirius even when stat(2) reports the
+# same device number.  These two small inputs must therefore be real copies.
+cp -a "$PYTHON_SOURCE" "$STAGE/python"
+cp -a "$UV_SOURCE" "$STAGE/bin/uv"
 
 for required in \
     "$STAGE/genaspen/aspen/tools/prediction/gpu_runtime_prediction" \
