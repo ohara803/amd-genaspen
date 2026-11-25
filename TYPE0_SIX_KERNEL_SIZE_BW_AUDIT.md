@@ -102,3 +102,37 @@ the result.  Consequently, the `51389.pbs` softmax measurements describe the
 pre-correction kernel and must not be presented as measurements of the aligned
 source.  A new GPU measurement is required before recalibrating with the
 corrected softmax implementation.
+
+## Corrected softmax rerun
+
+Job `51391.pbs` compiled the aligned source, remeasured all 15 softmax sizes,
+removed all old softmax rows, and refitted the six-kernel models.  The preserved
+measurements are axpy/copy/dot from `51388.pbs` and gelu/relu from `51389.pbs`.
+
+| phase | n | runtime ms | corrected softmax GB/s |
+|---|---:|---:|---:|
+| train | 16,777,216 | 0.076157 | 5287.146 |
+| train | 33,554,432 | 0.151043 | 5331.636 |
+| train | 67,108,864 | 0.291237 | 5530.248 |
+| train | 134,217,728 | 0.572737 | 5624.266 |
+| train | 268,435,456 | 1.138967 | 5656.398 |
+| train | 536,870,912 | 2.265117 | 5688.405 |
+| train | 1,073,741,824 | 4.529708 | 5689.065 |
+| train | 2,147,483,648 | 9.047624 | 5696.480 |
+| target | 23,726,566 | 0.109830 | 5184.718 |
+| target | 47,453,133 | 0.209195 | 5444.084 |
+| target | 94,906,266 | 0.408369 | 5577.677 |
+| target | 189,812,531 | 0.805754 | 5653.712 |
+| target | 379,625,062 | 1.603707 | 5681.213 |
+| target | 759,250,125 | 3.198901 | 5696.332 |
+| target | 1,518,500,250 | 6.399551 | 5694.775 |
+
+Corrected softmax stability:
+
+- all 15 sizes: min `5184.718`, max `5696.480 GB/s`, CV `2.963%`
+- `n >= 67,108,864`: CV `0.930%`
+- `n >= 134,217,728`: CV `0.419%`
+
+The corrected kernel is about 3.83% faster on average than the pre-correction
+kernel.  The logical bandwidth remains above physical HBM bandwidth because
+the model counts the common `a[0]` load once per element.

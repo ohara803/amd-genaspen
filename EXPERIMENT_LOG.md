@@ -629,3 +629,58 @@ memory時間とcompute/SFU時間を併設する必要がある。
 
 問題サイズと実効bwの全表、runtime calibrationの式と学習分離、安定性の統計は
 `TYPE0_SIX_KERNEL_SIZE_BW_AUDIT.md`へ保存した。
+
+## 2026-11-26 修正softmax再測定・6カーネル再学習
+
+- SiriusジョブID: `51391.pbs`
+- ジョブがcloneしたcommit: `710f2af6597de12f591c9b22b65928e2d6cca5c8`
+- 保存ステータス: `SUCCESS`
+- 新規測定: 修正softmax 15点
+- 再利用: axpy/copy/dot=`51388.pbs`、gelu/relu=`51389.pbs`
+- 学習 / 検証: 48 / 42点
+- 旧softmax行: 0
+- カーネル別測定行: 各15、合計90
+- native/direct predictor一致: 42/42
+- manifest: 全件一致
+- 追加投入: なし
+
+修正softmaxはHIPコンパイルに成功し、完全実行版とkernel-only版のsnapshotを成果物へ
+保存した。15点測定は168秒、42点公式予測は6.768秒、LLM tokenは0だった。
+
+### 再学習係数
+
+- runtime bw: `4094.8908945950843 GB/s`
+- runtime train MAPE: `18.833254374710318%`
+- power Ridge alpha: `3.1622776601683795e-05`
+- power train MAPE: `3.801110422909954%`
+- power leave-one-size-out MAPE: `4.4020650955020075%`
+
+### 42点end-to-end MAPE
+
+| group | points | runtime MAPE | power MAPE | energy MAPE |
+|---|---:|---:|---:|---:|
+| all | 42 | 18.317903% | 3.576270% | 18.224545% |
+| axpy | 7 | 9.781969% | 3.119713% | 12.315784% |
+| copy | 7 | 3.039304% | 2.556400% | 3.564380% |
+| dot | 7 | 9.689553% | 3.692677% | 11.633539% |
+| softmax | 7 | 35.822624% | 2.642726% | 32.233529% |
+| gelu | 7 | 48.560304% | 6.750842% | 45.087723% |
+| relu | 7 | 3.013663% | 2.695262% | 4.512318% |
+
+修正softmaxは修正前より平均3.83%高速になり、論理実効bwは全15点で
+`5184.718--5696.480 GB/s`となった。67M以上のCVは`0.930%`、134M以上は
+`0.419%`で安定する。ただし共通`a[0]`loadを毎要素計上した論理値であり、物理HBM
+帯域ではない。softmaxの高速化により6カーネル単一bwがさらに上昇し、axpy/dotと
+geluのruntime誤差も悪化した。これは単一bw統合の不適合をさらに裏付ける。
+
+### 保存先
+
+- Sirius: `runs/51391.pbs/summary/type0_softmax_corrected_51391.tar.gz`
+- ローカルarchive: `results/type0_softmax_corrected_51391.tar.gz`
+- ローカル展開先: `results/type0_softmax_corrected_51391/`
+- MAPE: `results/type0_softmax_corrected_51391/evaluation/mape_summary.csv`
+- 42点比較: `results/type0_softmax_corrected_51391/evaluation/end_to_end_comparison.csv`
+- 係数: `results/type0_softmax_corrected_51391/training/`
+- 修正softmax 15点: `results/type0_softmax_corrected_51391/measurement/corrected_softmax.log`
+- source snapshot: `results/type0_softmax_corrected_51391/input_snapshot/softmax*.hip`
+- 実行ログ: `results/type0_softmax_corrected_51391/EXECUTION_LOG.md`
