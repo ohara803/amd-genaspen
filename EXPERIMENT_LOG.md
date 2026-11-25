@@ -609,3 +609,23 @@ memory時間とcompute/SFU時間を併設する必要がある。
 - runtime/power係数: `results/type0_six_kernel_grid_51389/training/`
 - machine model: `results/type0_six_kernel_grid_51389/machine_model/`
 - token/time: `results/type0_six_kernel_grid_51389/timings/`
+
+## 2026-11-26 softmax source照合と修正
+
+`51389.pbs`で測定したsoftmaxを指定された参照カーネルと照合したところ、完全実行版は
+`max_val`更新を省略して`exp`を使用し、kernel-only版も`a[i]`の読み方と`exp`が参照と
+異なっていた。次の2ファイルを同じ参照カーネルへ統一した。
+
+- `hip_kernels/softmax.hip`
+- `hip_kernels_only/softmax_kernel.hip`
+
+修正後は`max_val = a[0]`、`ai = a[i]`、条件付きmax更新、`expf`、`sum /= sum`、
+`b[i] = sum`の順序で一致する。cached ASPEN modelの論理特徴量は3 operations、
+16B load、8B storeであり、総数は変更していない。
+
+このソース修正は成功済みジョブ`51389.pbs`の後に行ったため、同ジョブのsoftmax実測は
+修正前コードの結果である。修正後softmaxの実測値として再利用せず、次回のGPU測定で
+再取得してから6カーネル係数を再学習する必要がある。成功後の追加ジョブは投入していない。
+
+問題サイズと実効bwの全表、runtime calibrationの式と学習分離、安定性の統計は
+`TYPE0_SIX_KERNEL_SIZE_BW_AUDIT.md`へ保存した。

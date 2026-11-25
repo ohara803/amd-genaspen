@@ -400,11 +400,17 @@ int run_hip_benchmark(int argc, char** argv) {
 #endif
 
 
-__global__ void softmax(const double* a, double* b, size_t n) {
-    const size_t i = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+__global__ void softmax(double* a, double* b, size_t n) {
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    double max_val = a[0];
     if (i < n) {
-        const double value = exp(a[i] - a[0]);
-        b[i] = value / value;
+        double ai = a[i];
+        if (ai > max_val) {
+            max_val = ai;
+        }
+        double sum = expf(ai - max_val);
+        sum /= sum;
+        b[i] = sum;
     }
 }
 

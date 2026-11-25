@@ -2,11 +2,15 @@
 #include <hip/hip_runtime.h>
 
 __global__ void softmax(double* a, double* b, size_t n) {
-    const size_t i = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-    double max_value = a[0];
-    if (i < n && a[i] > max_value) max_value = a[i];
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    double max_val = a[0];
     if (i < n) {
-        const double value = exp(a[i] - max_value);
-        b[i] = value / value;
+        double ai = a[i];
+        if (ai > max_val) {
+            max_val = ai;
+        }
+        double sum = expf(ai - max_val);
+        sum /= sum;
+        b[i] = sum;
     }
 }
