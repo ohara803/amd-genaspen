@@ -12,6 +12,12 @@ The PBS payload copies only the required GenASPEN components into
 LLM generations use an instrumented staged copy that records exact Ollama
 prompt/completion token counts and per-stage elapsed seconds.
 
+Because PBSWRAP deliberately hides sibling `/work` and `/home` paths, run
+`type0/prepare_pbswrap_stage.sh` once on the Sirius login node before
+submission.  It creates a new directory under the mounted project and uses
+hard links for GenASPEN, the Python environment, Ollama, and model blobs; it
+does not alter their canonical files or duplicate their data blocks.
+
 Submit from the MacBook with a 30-minute limit:
 
 ```bash

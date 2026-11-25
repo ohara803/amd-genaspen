@@ -3,12 +3,31 @@ set -euo pipefail
 
 #PBSWRAP MODULE rocm/7.2.0
 
-BASE=/work/CSPP/ohara_803
-GENASPEN_SOURCE="$BASE/genaspen"
-MEASUREMENT_SOURCE="$BASE/20261120_amd_genaspen"
 REPO_URL="https://github.com/ohara803/amd-genaspen.git"
+STAGE_NAME="pbswrap_stage_type0_20261125"
 
 cd "$PBSWRAP_WORK"
+stage_root="$PBSWRAP_SRC/$STAGE_NAME"
+GENASPEN_SOURCE="$stage_root/genaspen"
+MEASUREMENT_SOURCE="$PBSWRAP_DATA"
+OLLAMA_SOURCE="$stage_root/ollama-v0321"
+OLLAMA_MODELS_SOURCE="$stage_root/ollama-models"
+UV_BIN="$stage_root/bin/uv"
+PYTHON_DIST="$stage_root/python"
+
+for required in \
+    "$GENASPEN_SOURCE" \
+    "$GENASPEN_SOURCE/.venv/lib" \
+    "$OLLAMA_SOURCE/bin/ollama" \
+    "$OLLAMA_MODELS_SOURCE" \
+    "$UV_BIN" \
+    "$PYTHON_DIST/bin/python3.13"; do
+    if [[ ! -e "$required" ]]; then
+        echo "ERROR: PBSWRAP stage input is missing: $required" >&2
+        exit 1
+    fi
+done
+
 job_number="${PBS_JOBID%%.*}"
 if [[ ! "$job_number" =~ ^[0-9]+$ ]]; then
     echo "ERROR: invalid PBS_JOBID: $PBS_JOBID" >&2
@@ -118,20 +137,37 @@ cp "$GENASPEN_SOURCE/kernels/run_kernel_size_energy.py" \
 for kernel in axpy copy dot; do
     cp -a "$GENASPEN_SOURCE/kernels/$kernel" "$genaspen_work/kernels/"
 done
-ln -s "$GENASPEN_SOURCE/.venv" "$genaspen_work/.venv"
+
+# Recreate only the writable venv shell.  Its large site-packages directory is
+# exposed read-only through PBSWRAP and is never copied or modified.
+mkdir -p "$genaspen_work/.venv/bin"
+ln -s "$PYTHON_DIST/bin/python3.13" "$genaspen_work/.venv/bin/python"
+ln -s python "$genaspen_work/.venv/bin/python3"
+ln -s python "$genaspen_work/.venv/bin/python3.13"
+ln -s "$GENASPEN_SOURCE/.venv/lib" "$genaspen_work/.venv/lib"
+cp "$GENASPEN_SOURCE/.venv/pyvenv.cfg" "$genaspen_work/.venv/pyvenv.cfg"
+sed -i "s#^home =.*#home = $PYTHON_DIST/bin#" \
+    "$genaspen_work/.venv/pyvenv.cfg"
+python_bin="$genaspen_work/.venv/bin/python"
+
 mkdir -p "$genaspen_work/result_agentic_workflow/generation_debug"
 cp "$repo_root/type0/inputs.sirius.json" \
     "$genaspen_work/examples/type0_inputs.json"
+sed -i \
+    "s#/work/CSPP/ohara_803/20261120_amd_genaspen#$MEASUREMENT_SOURCE#g" \
+    "$genaspen_work/examples/type0_inputs.json"
 
-"$GENASPEN_SOURCE/.venv/bin/python" \
+"$python_bin" \
     "$repo_root/type0/instrument_genaspen.py" \
     "$genaspen_work/src/agenticGenASPEN/agenticGenASPEN_cot.py"
 cp "$genaspen_work/src/agenticGenASPEN/agenticGenASPEN_cot.py" \
     "$experiment_root/input_snapshot/agenticGenASPEN_cot.instrumented.py"
 
-export PATH="$HOME/.local/bin:$BASE/ollama-v0321/bin:$PATH"
+export PATH="$stage_root/bin:$OLLAMA_SOURCE/bin:$PATH"
 export PYTHONPATH="$genaspen_work:$genaspen_work/src"
-export OLLAMA_MODELS="$BASE/ollama/models"
+export PYTHONDONTWRITEBYTECODE=1
+export UV_PYTHON_DOWNLOADS=never
+export OLLAMA_MODELS="$OLLAMA_MODELS_SOURCE"
 export OLLAMA_HOST=127.0.0.1:11435
 export OLLAMA_IGPU_ENABLE=1
 export OLLAMA_CONTEXT_LENGTH=4096
@@ -165,14 +201,14 @@ echo "=== Generate axpy/copy/dot application models ==="
 generation_timing="$experiment_root/timings/generation_commands.jsonl"
 mkdir -p "$experiment_root/logs/generation" "$experiment_root/timings"
 for kernel in axpy copy dot; do
-    "$GENASPEN_SOURCE/.venv/bin/python" \
+    "$python_bin" \
         "$repo_root/type0/run_logged_command.py" \
         --stage "genaspen_${kernel}" \
         --timing-jsonl "$generation_timing" \
         --stdout "$experiment_root/logs/generation/${kernel}.stdout.txt" \
         --stderr "$experiment_root/logs/generation/${kernel}.stderr.txt" \
         --cwd "$genaspen_work" -- \
-        uv run --no-sync \
+        "$UV_BIN" run --no-sync \
         src/agenticGenASPEN/agenticGenASPEN_cot.py \
         --ollama --kernel "$kernel" --config examples/type0_inputs.json
 done
@@ -182,14 +218,15 @@ wait "$ollama_pid" 2>/dev/null || true
 ollama_pid=""
 
 echo "=== Fit coefficients, run official predictions, and evaluate ==="
-"$GENASPEN_SOURCE/.venv/bin/python" \
+"$python_bin" \
     "$repo_root/type0/run_type0_analysis.py" \
     --genaspen-root "$genaspen_work" \
     --measurement-log "$MEASUREMENT_SOURCE/measurement/run_all.sh.o50858" \
     --base-machine \
         "$genaspen_work/aspen/models/machine/sockets/amd_mi300a.aspen" \
     --wavefront-size "$wavefront_size" \
-    --output-dir "$experiment_root"
+    --output-dir "$experiment_root" \
+    --uv "$UV_BIN"
 
 final_status="SUCCESS"
 echo "TYPE0_JOB_SUCCESS"
