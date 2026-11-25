@@ -1,0 +1,13 @@
+model copy {
+    param sizeof_double = 8
+    param n = 4100000000
+    param cuda_logical_threads = n
+    data a as Array(n, sizeof_double)
+    data b as Array(n, sizeof_double)
+    kernel main {
+        execute [n] {
+            loads [(1*sizeof_double)] from b as stride(0), vector
+            stores [(1*sizeof_double)] to a as stride(0), vector
+        }
+    }
+}

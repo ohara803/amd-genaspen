@@ -1,0 +1,15 @@
+model axpy {
+    param sizeof_double = 8
+    param n = 1000000000
+    param cuda_logical_threads = n
+    data x as Array(n, sizeof_double)
+    data y as Array(n, sizeof_double)
+    kernel main {
+        execute [n] {
+            flops [2] as dp
+            loads [(1*sizeof_double)] from x as stride(0), vector
+            loads [(1*sizeof_double)] from y as stride(0), vector
+            stores [(1*sizeof_double)] to y as stride(0), vector
+        }
+    }
+}
