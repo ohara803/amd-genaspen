@@ -510,3 +510,102 @@ copyではruntimeを平均的に過大予測する一方でpowerを過小予測�
 - power誤差分解: `results/type0_runtime_grid_51388/power_energy/evaluation/power_error_decomposition.csv`
 - power係数: `results/type0_runtime_grid_51388/power_energy/training/power_model.json`
 - 暫定machine model: `results/type0_runtime_grid_51388/power_energy/machine_model/`
+
+## 2026-11-26 MI300A Type0 6カーネル再学習・予測評価
+
+### 実験構成
+
+- SiriusジョブID: `51389.pbs`
+- キュー / walltime上限: `mcrp` / `00:30:00`
+- ジョブがcloneしたGitHub commit: `b4f139729edd1323f7ad3d910ad803aa7d6ce9d1`
+- GPU / ROCm: AMD Instinct MI300A / 7.2.0
+- 既存実測: `51388.pbs`のaxpy/copy/dot 45点
+- 新規実測: softmax/gelu/relu 45点
+- 合計: 6カーネル、学習48点、保持した検証42点
+- 新規ジョブ投入数: 1
+- 再投入: なし
+
+新規3カーネルも、学習には16,777,216から2,147,483,648まで2倍刻みの8点、
+検証には隣接学習点の幾何中点7点を使用した。静的特徴量はcached ASPEN modelの
+定義に統一し、softmax=`3 FLOP/16B load/8B store`、
+gelu=`9 FLOP/8B load/8B store`、relu=`0 FLOP/8B load/8B store`とした。
+
+### 学習結果
+
+- runtime単一帯域: `4028.8748926229428 GB/s`
+- runtime train MAPE: `17.69695194293325%`
+- power Ridge alpha: `0.0001`
+- power train MAPE: `3.563628435658902%`
+- power leave-one-size-out MAPE: `4.0850476598223375%`
+- power設計行列: 4列、rank 3
+
+暫定power係数:
+
+```text
+param power_warp_size = 64
+param power_intercept_0 = 696.84688697035699
+param power_warp_0 = 4.2273139764141306e-09
+param power_flop_0 = 1.8916771292358184e-11
+param power_load_0 = 3.9786731475372178e-12
+param power_store_0 = 8.2564726101838488e-12
+```
+
+rank deficientであるため、power係数は個別の物理量として解釈せず、組み合わせた
+予測器として扱う。
+
+### 42点の公式end-to-end評価
+
+| group | points | runtime MAPE | power MAPE | energy MAPE |
+|---|---:|---:|---:|---:|
+| all | 42 | 17.194398% | 2.737702% | 16.771001% |
+| axpy | 7 | 8.303741% | 2.709129% | 10.343465% |
+| copy | 7 | 3.040873% | 2.478775% | 1.873813% |
+| dot | 7 | 8.209812% | 3.285538% | 9.645877% |
+| softmax | 7 | 32.910710% | 2.374336% | 29.754953% |
+| gelu | 7 | 47.717409% | 2.960639% | 46.169533% |
+| relu | 7 | 2.983843% | 2.617794% | 2.838367% |
+
+native C++ runtime/power/energy predictorとPython直接式の一致検査は42/42点成功した。
+power MAPEは全体2.74%だが、energyはruntime誤差の影響を受けて16.77%となった。
+
+### runtime誤差の考察
+
+- reluの実効帯域は大サイズ側で約4.12 TB/sとなりcopyとほぼ一致する。単一bwの
+  Type0モデルでruntime MAPE約2.98%に収まった。
+- softmaxのASPEN modelは`a[i]`と全thread共通の`a[0]`をともに毎要素loadとして
+  16B計上する。しかし`a[0]`はcacheで再利用されるため、論理byte数から計算した
+  実効帯域は約5.46 TB/sとなる。このtraffic過大計上によりruntimeを約33%過大予測した。
+- geluは`tanh`を含む計算コストが支配的で、16B/要素から換算した実効帯域は
+  約2.12 TB/sに留まる。単一memory bw式はruntimeを約48%過小予測した。
+- このため、同じ1次元elementwise/Type0分類でも、softmaxにはcache reuseを反映した
+  trafficモデル、geluにはtranscendental/SFUまたはcompute項が必要である。
+
+6カーネルを一つの単一bwへまとめると、元のaxpy/dotも新しい高めのbwに引かれて
+runtime MAPEが約8.3%へ悪化した。copy/reluは約3%であるため、次の改善では
+Type0を少なくともpure-memory群とspecial-function群へ分けるか、runtime式へ
+memory時間とcompute/SFU時間を併設する必要がある。
+
+### 実行・監査
+
+- 新規3カーネルHIPコンパイル: 5 s
+- 新規45点実測: 407 s
+- cached model staging: 3 s
+- 42点公式予測: 6.921993 s
+- LLM prompt/completion tokens: `0 / 0`
+- 実測power CV最大値: `1.96%`
+- CSV行数: 測定90、予測42、比較42
+- 保存manifest: 全件一致
+- canonical GenASPEN / MI300A machine modelの変更: なし
+
+### 保存先
+
+- Sirius: `runs/51389.pbs/summary/type0_six_kernel_grid_51389.tar.gz`
+- ローカルarchive: `results/type0_six_kernel_grid_51389.tar.gz`
+- ローカル展開先: `results/type0_six_kernel_grid_51389/`
+- 実行ログ: `results/type0_six_kernel_grid_51389/EXECUTION_LOG.md`
+- 90点測定: `results/type0_six_kernel_grid_51389/input_snapshot/measurement_summary.csv`
+- 42点比較: `results/type0_six_kernel_grid_51389/evaluation/end_to_end_comparison.csv`
+- MAPE: `results/type0_six_kernel_grid_51389/evaluation/mape_summary.csv`
+- runtime/power係数: `results/type0_six_kernel_grid_51389/training/`
+- machine model: `results/type0_six_kernel_grid_51389/machine_model/`
+- token/time: `results/type0_six_kernel_grid_51389/timings/`
