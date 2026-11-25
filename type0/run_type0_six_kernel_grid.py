@@ -389,6 +389,13 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--wavefront-size", type=int, default=64)
     parser.add_argument("--uv", required=True)
+    parser.add_argument(
+        "--measurement-note",
+        default=(
+            "The axpy/copy/dot measurements came from successful job 51388.pbs. "
+            "This job newly measured softmax/gelu/relu on the same grid."
+        ),
+    )
     args = parser.parse_args()
     root = args.output_dir.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -458,10 +465,10 @@ def main() -> int:
 - Target energy MAPE: {overall['energy_mape_percent']:.6g}%
 - LLM prompt/completion tokens: 0 / 0
 
-The axpy/copy/dot measurements came from successful job 51388.pbs.  This job
-newly measured softmax/gelu/relu on the same grid.  The canonical GenASPEN tree
-and MI300A machine model were not modified; all predictions used a job-local
-machine model and cached application models.
+{args.measurement_note}
+
+The canonical GenASPEN tree and MI300A machine model were not modified; all
+predictions used a job-local machine model and cached application models.
 """
     (root / "EXECUTION_LOG.md").write_text(execution_log, encoding="utf-8")
     write_json(root / "evaluation/evaluation_summary.json", {
@@ -479,6 +486,7 @@ machine model and cached application models.
             )
         },
         "mape": summary,
+        "measurement_note": args.measurement_note,
     })
     write_manifest(root)
     print(json.dumps({
