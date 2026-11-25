@@ -451,3 +451,62 @@ manifestを作成した後、payload側が最終stage時間を1行追記した�
 - MAPE: `results/type0_runtime_grid_51388/evaluation/mape_summary.csv`
 - runtime係数: `results/type0_runtime_grid_51388/training/runtime_model.json`
 - 区間別token/time: `results/type0_runtime_grid_51388/timings/`
+
+## 2026-11-26 MI300A Type0 power・energy事後評価
+
+成功済み`51388.pbs`の実測45点と公式runtime/static-feature予測21点を再利用した。
+新しいSiriusジョブは投入せず、canonical GenASPENおよび標準MI300A machine modelは
+変更していない。power係数は学習24点だけから、前回と同じ4特徴量
+`warp/s`、`FLOP/s`、`load-byte/s`、`store-byte/s`を標準化した重み付きRidgeで
+学習した。Ridge alphaはtrain内leave-one-size-out MAPEにより選択した。
+
+### 学習結果
+
+- Ridge alpha: `1e-5`
+- power train MAPE: `2.706007171961945%`
+- power leave-one-size-out MAPE: `4.71951737950407%`
+- 実測power CVの最大値: `1.96%`
+- wavefront size: 64
+- 学習行 / 検証行: 24 / 21
+- 解析時間: `0.174224 s`
+- LLM prompt/completion tokens: `0 / 0`
+
+暫定machine model用power係数:
+
+```text
+param power_warp_size = 64
+param power_intercept_0 = 191.97399270641279
+param power_warp_0 = 2.7511003018011889e-08
+param power_flop_0 = 4.1563097551290708e-11
+param power_load_0 = 1.6303114531409915e-10
+param power_store_0 = 5.3732427769554478e-11
+```
+
+3カーネルでは特徴量間に強い共線性があり、標準化後の設計行列rankは2である。
+したがって各係数を独立した物理量として解釈せず、4項を合わせた予測モデルとして扱う。
+
+### 検証結果
+
+| group | points | runtime MAPE | power MAPE | energy MAPE |
+|---|---:|---:|---:|---:|
+| all | 21 | 4.605848% | 2.909455% | 2.433751% |
+| axpy | 7 | 3.740782% | 1.226551% | 3.206171% |
+| copy | 7 | 6.407758% | 5.686418% | 1.583769% |
+| dot | 7 | 3.669005% | 1.815396% | 2.511312% |
+
+実測runtimeと正確な静的特徴量を電力モデルへ与えた場合のpower MAPEは`1.840875%`、
+公式の予測runtime/static featuresを与えたend-to-end power MAPEは`2.909455%`だった。
+差分は主にruntime予測誤差がrate特徴量へ伝播した分である。
+
+copyではruntimeを平均的に過大予測する一方でpowerを過小予測するため、積であるenergyの
+誤差が相殺され、power MAPE `5.686418%`に対してenergy MAPEが`1.583769%`となった。
+したがってenergy MAPEの低さだけをruntime/power各モデルの精度と解釈しない。
+
+### 保存先
+
+- 解析実行ログ: `results/type0_runtime_grid_51388/power_energy/EXECUTION_LOG.md`
+- 21点比較: `results/type0_runtime_grid_51388/power_energy/evaluation/power_energy_comparison.csv`
+- MAPE: `results/type0_runtime_grid_51388/power_energy/evaluation/mape_summary.csv`
+- power誤差分解: `results/type0_runtime_grid_51388/power_energy/evaluation/power_error_decomposition.csv`
+- power係数: `results/type0_runtime_grid_51388/power_energy/training/power_model.json`
+- 暫定machine model: `results/type0_runtime_grid_51388/power_energy/machine_model/`
