@@ -356,3 +356,98 @@ param power_store_0 = 1.0009317363736603e-10
 - machine model before/provisional/diff: `results/type0_axpy_copy_dot_51385/machine_models/`
 - token/time: `results/type0_axpy_copy_dot_51385/generation/`
 - 全予測stdout/stderr・commands: `results/type0_axpy_copy_dot_51385/predictions/`
+
+## 2026-11-26 MI300A Type0 runtime高密度グリッド再測定
+
+### 目的と実験点
+
+- 対象: Type0の `axpy`、`copy`、`dot`
+- GPU / ROCm: AMD Instinct MI300A / 7.2.0
+- SiriusジョブID: `51388.pbs`
+- キュー / walltime上限: `mcrp` / `00:30:00`
+- ジョブがcloneしたGitHub commit: `6d4d66a36365177d263ff3e8d78e0eab85c91fe2`
+- 新規ジョブ投入数: 1
+- 再投入: なし
+
+学習サイズは`16,777,216`から`2,147,483,648`まで2倍刻みの8点とした。
+検証サイズは隣接する学習点の間の幾何中点を整数へ丸めた次の7点とし、
+学習点との重複を避けた。
+
+```text
+23,726,566
+47,453,133
+94,906,266
+189,812,531
+379,625,062
+759,250,125
+1,518,500,250
+```
+
+3カーネルについて学習24点、検証21点、合計45点を新しく実測した。
+最大サイズで2本のhost配列と2本のdevice配列が使用する領域は合計64 GiBで、
+従来の4.1B点よりメモリ圧迫を抑えた。HIPソースとイベント計測順序は変更していない。
+
+### 実行結果
+
+- 保存ステータス: `SUCCESS`
+- HIPコンパイル: 3/3成功
+- 実測: 45/45点成功
+- 公式GenASPEN cached-model予測: 21/21点成功
+- 学習済み単一帯域: `3784.2604938964796 GB/s`
+- 学習runtime MAPE: `5.45400601242516%`
+- LLM prompt/completion tokens: `0 / 0`（前回のcached application modelを再利用）
+- canonical GenASPENと標準MI300A machine modelの変更: なし
+
+| group | validation points | runtime MAPE |
+|---|---:|---:|
+| all | 21 | 4.605848% |
+| axpy | 7 | 3.740782% |
+| copy | 7 | 6.407758% |
+| dot | 7 | 3.669005% |
+
+検証点をサイズ別に3カーネル平均すると、MAPEは次のとおりだった。
+
+| n | runtime MAPE |
+|---:|---:|
+| 23,726,566 | 9.5822% |
+| 47,453,133 | 4.8853% |
+| 94,906,266 | 3.3934% |
+| 189,812,531 | 2.5851% |
+| 379,625,062 | 3.6996% |
+| 759,250,125 | 4.1321% |
+| 1,518,500,250 | 3.9633% |
+
+`axpy`と`dot`の実効帯域は16.8M付近では約3.1--3.2 TB/sで、問題サイズと
+ともに増加し、2.147Bでは約3.87 TB/sへ達した。`copy`も2.147Bで約4.14 TB/sを
+維持した。したがって今回の上限2.147Bまで4.1B点のような帯域低下は観測されず、
+上限として妥当だった。一方、最小側23.7Mでは`axpy`/`dot`の誤差が約12.5%あり、
+16.8Mを含む範囲全体を単一帯域だけで表すと立ち上がり領域の誤差が残る。
+また、定常域では`copy`の実効帯域が`axpy`/`dot`より高いため、単一帯域の妥協値では
+`copy`の大サイズ側に約7.7--9.1%のruntime過大予測が残った。
+
+### 時間と成果物監査
+
+- HIPコンパイル: 5 s
+- 45点測定: 417 s
+- cached GenASPEN作業コピー作成: 2 s
+- 21点公式予測: 3.429735 s
+- 係数学習: 0.004509 s
+- MAPE評価: 0.003105 s
+
+CSV行数は測定45、予測21、比較21で期待値と一致した。保存manifestを再検証した
+ところ、`timings/job_stages.jsonl`以外はすべて一致した。同ファイルだけは解析側が
+manifestを作成した後、payload側が最終stage時間を1行追記したため不一致となった。
+性能値・測定値の破損ではない。成功後の追加投入を避けるため再実行はせず、将来の
+実行ではmanifest後の追記が起きないようpayloadを修正した。
+
+### 保存先
+
+- Sirius: `runs/51388.pbs/summary/type0_runtime_grid_51388.tar.gz`
+- ローカルarchive: `results/type0_runtime_grid_51388.tar.gz`
+- ローカル展開先: `results/type0_runtime_grid_51388/`
+- 実行ログ: `results/type0_runtime_grid_51388/EXECUTION_LOG.md`
+- 45点測定: `results/type0_runtime_grid_51388/input_snapshot/measurement_summary.csv`
+- 21点比較: `results/type0_runtime_grid_51388/evaluation/runtime_comparison.csv`
+- MAPE: `results/type0_runtime_grid_51388/evaluation/mape_summary.csv`
+- runtime係数: `results/type0_runtime_grid_51388/training/runtime_model.json`
+- 区間別token/time: `results/type0_runtime_grid_51388/timings/`

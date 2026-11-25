@@ -183,8 +183,6 @@ record_stage "stage_cached_genaspen_models" "$stage_started_at" \
     "$((SECONDS - stage_started_seconds))"
 
 echo "=== Fit one bandwidth, apply it, predict, and evaluate ==="
-stage_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-stage_started_seconds=$SECONDS
 "$python_bin" "$repo_root/type0/run_type0_runtime_grid.py" \
     --genaspen-root "$genaspen_work" \
     --measurement-log "$measurement_log" \
@@ -192,8 +190,6 @@ stage_started_seconds=$SECONDS
         "$genaspen_work/aspen/models/machine/sockets/amd_mi300a.aspen" \
     --output-dir "$experiment_root" \
     --uv "$UV_BIN"
-record_stage "fit_predict_evaluate" "$stage_started_at" \
-    "$((SECONDS - stage_started_seconds))"
 
 final_status="SUCCESS"
 echo "TYPE0_RUNTIME_GRID_SUCCESS"
