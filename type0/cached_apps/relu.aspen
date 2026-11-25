@@ -1,0 +1,13 @@
+model relu {
+    param sizeof_double = 8
+    param n = 6000000000
+    param cuda_logical_threads = n
+    data a as Array(n, sizeof_double)
+    data b as Array(n, sizeof_double)
+    kernel main {
+        execute [n] {
+            loads [(1*sizeof_double)] from a as stride(0), vector
+            stores [(1*sizeof_double)] to b as stride(0), vector
+        }
+    }
+}
