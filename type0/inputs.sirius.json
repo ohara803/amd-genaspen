@@ -1,0 +1,20 @@
+{
+  "axpy": {
+    "kernel_file": "/work/CSPP/ohara_803/20261120_amd_genaspen/hip_kernels_only/axpy_kernel.hip",
+    "device": "amd_mi300a",
+    "metrics": ["flops", "loads", "stores", "runtime"],
+    "n": 1000000000
+  },
+  "copy": {
+    "kernel_file": "/work/CSPP/ohara_803/20261120_amd_genaspen/hip_kernels_only/copy_kernel.hip",
+    "device": "amd_mi300a",
+    "metrics": ["flops", "loads", "stores", "runtime"],
+    "n": 1000000000
+  },
+  "dot": {
+    "kernel_file": "/work/CSPP/ohara_803/20261120_amd_genaspen/hip_kernels_only/dot_kernel.hip",
+    "device": "amd_mi300a",
+    "metrics": ["flops", "loads", "stores", "runtime"],
+    "n": 1000000000
+  }
+}
