@@ -260,3 +260,99 @@ ssh -S /tmp/codex-sirius-login.sock \
 ### 失敗した試行
 
 ジョブ `50772.pbs` では、PBSジョブから固定ディレクトリへ書き込もうとした。`pbswrap` により固定ディレクトリが読み取り専用で公開されるため、この方式では配置できなかった。この失敗から、固定ディレクトリの更新には通常SSH接続が必要であることを確認した。
+
+## 2026-11-25 MI300A Type0 axpy/copy/dot係数学習・予測評価
+
+### 目的と入力
+
+- 対象: Type0の `axpy`、`copy`、`dot`
+- GPU: AMD Instinct MI300A
+- ROCm: 7.2.0（HIP 7.2.26015）
+- 実行時検出wavefront size: 64 lanes
+- 測定元: `measurement/run_all.sh.o50858`
+- 学習: 3カーネル×7サイズ = 21点
+- target: 3カーネル×3サイズ = 9点
+- train/target重複: 0
+- 成功ジョブがcloneしたGitHub commit: `a4d8dd0da939ccb7aa54409549bb90c54b84d4f7`
+
+学習にはtrain行だけを使い、target行は係数またはRidge alphaの選択に使用していない。runtimeは既存Type0式`total_bytes / bw`へ相対誤差重み付き原点回帰で有効帯域をfitした。powerは実測runtimeをrate分母とする`warp/s`、`FLOP/s`、`load-byte/s`、`store-byte/s`の4特徴量を標準化し、`1/power_W^2`重み付きRidgeを使用した。alphaはtrain内のleave-one-size-out MAPEで選んだ。
+
+### ジョブ履歴
+
+1. `51384.pbs`: 失敗。PBSWRAPがジョブ内の`/work`を隔離するため、兄弟ディレクトリのGenASPEN、Ollama、測定入力が見えなかった。MI300A/ROCmとwavefront=64の検出後、入力snapshot段階で停止した。成果物と失敗ログはSiriusの`runs/51384.pbs`に保存済み。
+2. `51385.pbs`: 成功。プロジェクト配下へ新規`pbswrap_stage_type0_20261125`を作り、GenASPEN、venv site-packages、Ollama、モデルblobをハードリンクで読み取り専用公開した。別mountのPython 112 MBと`uv` 38 MBだけ通常コピーした。ジョブ内ではさらに`$PBSWRAP_WORK`へ作業コピーを作成した。
+
+成功ジョブ後の追加投入は行っていない。ログインノードではコンパイルまたはGPU計算を行っていない。Sirius上のcanonical GenASPENと`amd_mi300a.aspen`は変更していない。
+
+### 学習結果
+
+- 有効帯域: `3399.4782046459172 GB/s`
+- runtime train MAPE: `15.220027709479616%`
+- runtime leave-one-size-out MAPE: `17.499441099102576%`
+- power Ridge alpha: `1e-12`
+- power train MAPE: `6.769286284567999%`
+- power leave-one-size-out MAPE: `9.049918369465694%`
+- power設計行列: 4列、rank 2。axpyとdotが同一静的比率を持つため強い共線性があり、係数の個別解釈はしない。
+
+暫定machine modelへ追加した係数:
+
+```text
+param bw = 3399.4782046459172 * giga
+param power_warp_size = 64
+param power_intercept_0 = -65.957357973521539
+param power_warp_0 = 5.124770434364279e-08
+param power_flop_0 = 2.6223009997370891e-10
+param power_load_0 = 1.9450565509013352e-10
+param power_store_0 = 1.0009317363736603e-10
+```
+
+### 公式cached-model target評価
+
+保存した9件の`uv run --no-sync kernels/run_kernel_size_energy.py --aspen --reuse -f -l -s -r -p ...`標準出力から算出した。
+
+| group | points | runtime MAPE | power MAPE | energy MAPE |
+|---|---:|---:|---:|---:|
+| all | 9 | 15.272385% | 11.977122% | 8.335272% |
+| axpy | 3 | 11.128804% | 10.787769% | 6.369210% |
+| copy | 3 | 23.402993% | 14.563279% | 12.310033% |
+| dot | 3 | 11.285358% | 10.580319% | 6.326573% |
+
+- 予測コマンド: 9/9 return code 0
+- runtime/power/energy欠損・NaN・Inf・0以下: 0
+- Python raw係数とC++ predictorの一致検査: 9/9成功
+- 予測前後のstaged application model SHA-256: 3/3不変
+- 保存済みmanifest: 65件、ローカル再検証エラー0
+
+### GenASPEN生成のtoken・時間
+
+| kernel | prompt tokens | completion tokens | LLM stage time |
+|---|---:|---:|---:|
+| axpy | 12,903 | 920 | 83.006521 s |
+| copy | 12,892 | 1,026 | 63.108368 s |
+| dot | 12,896 | 887 | 38.297640 s |
+| total | 38,691 | 2,833 | 184.412528 s |
+
+各カーネルについてJSON IR生成とASPEN生成の2区間を個別保存している。コマンド全体時間、解析各phase時間、生response、thinking、metadataも成果物に含む。
+
+### 生成モデルと`--reuse`の監査
+
+現在のGenASPEN workflowは新規modelを`generation_debug/.../application_model.aspen`へ保存したが、今回の`uv --reuse`が読む作業コピーの`kernels/<kernel>/app.aspen`へ自動反映しなかった。したがって上の公式値は既存cached application modelによる結果である。
+
+- axpy生成モデル: source/static truthと一致
+- copy生成モデル: source/static truthと一致
+- dot生成モデル: `flops [1]`。source/static truthは`flops [2]`で不一致
+
+成功後は追加ジョブ禁止のため再投入していない。新規生成3モデルの特徴量を係数式へ直接入れた診断値は、9点全体でpower MAPE `13.614919%`、energy MAPE `9.637579%`。これは保存済み`uv`標準出力から算出した公式値ではなく、dotのfeature error影響を示す診断値として分離した。
+
+### 成果物
+
+- Sirius: `runs/51385.pbs/summary/type0_axpy_copy_dot_51385.tar.gz`
+- ローカルarchive: `results/type0_axpy_copy_dot_51385.tar.gz`
+- ローカル展開先: `results/type0_axpy_copy_dot_51385/`
+- 実行ログ: `results/type0_axpy_copy_dot_51385/EXECUTION_LOG.md`
+- 公式9点: `results/type0_axpy_copy_dot_51385/evaluation/official_end_to_end_comparison.csv`
+- MAPE: `results/type0_axpy_copy_dot_51385/evaluation/mape_summary.csv`
+- 係数: `results/type0_axpy_copy_dot_51385/training/type0_model.json`
+- machine model before/provisional/diff: `results/type0_axpy_copy_dot_51385/machine_models/`
+- token/time: `results/type0_axpy_copy_dot_51385/generation/`
+- 全予測stdout/stderr・commands: `results/type0_axpy_copy_dot_51385/predictions/`
